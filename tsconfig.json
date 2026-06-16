@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "strict": true,
+    "noEmit": true,
+    "plugins": [
+      { "name": "@styled/typescript-styled-plugin" }
+    ]
+  },
+  "include": ["shared", "src", "vite.config.ts"],
+  "exclude": ["worker"]
+}
