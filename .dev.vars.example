@@ -1,2 +1,5 @@
 JWT_SECRET=your_jwt_secret_min_32_chars
 JWT_EXPIRES_IN=7d
+
+STRAPI_URL=
+STRAPI_TOKEN=
