@@ -8,7 +8,7 @@ export interface StrapiImageFile {
   alternativeText: string | null,
 }
 
-interface GalleryItem {
+export interface GalleryItem {
   id: number,
   documentId: string,
   image: StrapiImageFile
