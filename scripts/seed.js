@@ -1,7 +1,6 @@
 // @ts-check
 import dotenv from 'dotenv'
 import * as clack from '@clack/prompts'
-import FormData from 'form-data'
 import pLimit from 'p-limit'
 
 import fs from 'fs'
@@ -72,77 +71,123 @@ async function seedFromJikan() {
   const limit = pLimit(3);
 
   const results = await Promise.all(imageUrls.map((url) => limit(() => uploadImage(url, spinner))));
-  spinner.stop('Fetched images done');
+  spinner.stop('Done');
 
   const summary = results.reduce(
-    (acc, r) => { acc[r]++; return acc; },
+    (acc, r) => { acc[r.status]++; return acc; },
     { uploaded: 0, skipped: 0, failed: 0 }
   );
 
-  clack.outro(`Uploaded ${summary.uploaded} images.\nSkipped ${summary.skipped} images.\nFailed to upload ${summary.failed} images.`);
+  const errors = results.filter(r => r.status === 'failed' && r.reason);
+  errors.forEach(r => clack.log.error(r.reason ?? ''));
+
+  clack.outro(`Uploaded ${summary.uploaded}  Skipped ${summary.skipped}  Failed ${summary.failed}`);
 }
 /**
  * @param {string} url
  * @param {ReturnType<typeof clack.spinner>} spinner
  */
+/**
+ * @param {string} url
+ * @param {ReturnType<typeof clack.spinner>} spinner
+ * @returns {Promise<{ status: 'uploaded' | 'skipped' | 'failed', reason?: string }>}
+ */
 async function uploadImage(url, spinner) {
+  const filename = path.basename(url);
   try {
-    // dulipicate check
-    const filename = path.basename(url);
-    const strapiUrl = `${process.env.STRAPI_URL}/api/upload/files?filters[name][$eq]=${filename}`;
-    const strapiResponse = await fetch(strapiUrl, {
-      headers: {
-        Authorization: `Bearer ${process.env.STRAPI_TOKEN}`
-      }
+    const strapiResponse = await fetch(`${process.env.STRAPI_URL}/api/upload/files?filters[name][$eq]=${filename}`, {
+      headers: { Authorization: `Bearer ${process.env.STRAPI_TOKEN}` }
     });
+    if (!strapiResponse.ok) {
+      return { status: 'failed', reason: `Duplicate check failed for ${filename}: ${strapiResponse.statusText}` };
+    }
     const checkData = /** @type {any} */ (await strapiResponse.json());
     if (checkData.length > 0) {
       spinner.message(`Skipping ${filename} — already exists`);
-      return 'skipped'
+      return { status: 'skipped' };
     }
 
-    const imgResponse = await fetch(url);
-    const buffer = Buffer.from(await imgResponse.arrayBuffer());
+    const buffer = url.startsWith('http')
+      ? Buffer.from(await (await fetch(url)).arrayBuffer())
+      : fs.readFileSync(url);
 
     const formData = new FormData();
-    formData.append('files', buffer, { filename, contentType: 'image/jpeg' });
+    const blob = new Blob([buffer], { type: 'image/jpeg' });
+    formData.append('files', blob, filename);
+    spinner.message(`Uploading ${filename}...`);
     const uploadResponse = await fetch(`${process.env.STRAPI_URL}/api/upload`, {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${process.env.STRAPI_TOKEN}`,
-        ...formData.getHeaders()
-      },
+      headers: { Authorization: `Bearer ${process.env.STRAPI_TOKEN}` },
       body: formData
     });
-    if (uploadResponse.ok) {
-      spinner.message(`Uploaded ${filename}`);
-    } else {
-      spinner.message(`Failed to upload ${filename}`);
+    if (!uploadResponse.ok) {
+      const errBody = await uploadResponse.text();
+      return { status: 'failed', reason: `Upload failed for ${filename}: ${uploadResponse.statusText} — ${errBody}` };
     }
 
     const uploadData = /** @type {any} */ (await uploadResponse.json());
-    const mediaId = uploadData[0].id;
-    await fetch(`${process.env.STRAPI_URL}/api/galleries`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${process.env.STRAPI_TOKEN}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        data: { image: mediaId }
-      })
-    })
+    if (!uploadData?.[0]?.id) {
+      return { status: 'failed', reason: `No media ID returned for ${filename}` };
+    }
 
-    return 'uploaded'
+    const galleryResponse = await fetch(`${process.env.STRAPI_URL}/api/galleries`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${process.env.STRAPI_TOKEN}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ data: { image: uploadData[0].id } })
+    });
+    if (!galleryResponse.ok) {
+      return { status: 'failed', reason: `Gallery entry failed for ${filename}: ${galleryResponse.statusText}` };
+    }
+
+    spinner.message(`Uploaded ${filename}`);
+    return { status: 'uploaded' };
 
   } catch (e) {
-    spinner.message(`Error: ${e}`);
-    return 'failed'
+    return { status: 'failed', reason: `${filename}: ${e}` };
   }
 }
 
-function seedFromLocal() {
-  return Promise.resolve()
+async function seedFromLocal() {
+  const folderPath = await clack.text({
+    message: 'Enter the absolute path to your image folder',
+    placeholder: '/Users/you/Pictures/mushoku',
+    validate: (value) => {
+      if (!value) return 'Path is required';
+      if (!fs.existsSync(value)) return 'Folder does not exist';
+    }
+  });
+
+  if (clack.isCancel(folderPath)) {
+    clack.cancel('Cancelled');
+    return;
+  }
+
+  const allowed = ['.jpg', '.jpeg', '.png', '.webp'];
+  const files = fs.readdirSync(String(folderPath)).filter(f => allowed.includes(path.extname(f).toLowerCase()));
+
+  if (files.length === 0) {
+    clack.outro('No image files found in that folder.');
+    return;
+  }
+
+  const spinner = clack.spinner();
+  spinner.start(`Found ${files.length} images, uploading...`);
+
+  const limit = pLimit(1);
+  const results = await Promise.all(
+    files.map(f => limit(() => uploadImage(path.join(String(folderPath), f), spinner)))
+  );
+  spinner.stop('Done');
+
+  const summary = results.reduce(
+    (acc, r) => { acc[r.status]++; return acc; },
+    { uploaded: 0, skipped: 0, failed: 0 }
+  );
+
+  const errors = results.filter(r => r.status === 'failed' && r.reason);
+  errors.forEach(r => clack.log.error(r.reason ?? ''));
+
+  clack.outro(`Uploaded ${summary.uploaded}  Skipped ${summary.skipped}  Failed ${summary.failed}`);
 }
 
 main();
