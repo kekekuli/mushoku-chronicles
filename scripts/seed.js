@@ -10,6 +10,8 @@ dotenv.config({
   path: ".dev.vars"
 })
 
+/** @typedef {ReturnType<typeof clack.taskLog>} TaskLog */
+
 if (!process.env.STRAPI_URL || !process.env.STRAPI_TOKEN) {
   console.error("Missing STRAPI_URL or STRAPI_TOKEN")
   process.exit(1)
@@ -20,6 +22,7 @@ async function main() {
   const source = await clack.select({
     message: 'Select which image source you want to use',
     options: [
+      { value: 'anilist', label: 'AniList API (Mushoku Tensei characters)' },
       { value: 'jikan', label: 'Jikan API (Mushoku Tensei characters)' },
       { value: 'local', label: 'Local folder' },
     ],
@@ -30,11 +33,60 @@ async function main() {
     return
   }
 
-  if (source === 'jikan') {
+  if (source === 'anilist') {
+    await seedFromAniList()
+  } else if (source === 'jikan') {
     await seedFromJikan()
   } else if (source === 'local') {
     await seedFromLocal()
   }
+}
+
+async function seedFromAniList() {
+  const searchTerm = await clack.text({
+    message: 'Enter a search term',
+    defaultValue: 'Mushoku Tensei',
+    placeholder: 'Mushoku Tensei',
+  })
+
+  const spinner = clack.spinner();
+  spinner.start('Fetching anime data from AniList...');
+
+  const query = `
+    query ($search: String) {
+      Media(search: $search, type: ANIME) {
+        characters(sort: ROLE, perPage: 50) {
+          nodes {
+            name { full }
+            image { large }
+          }
+        }
+      }
+    }
+  `;
+
+  const response = await fetch('https://graphql.anilist.co', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query, variables: { search: String(searchTerm) } }),
+  });
+
+  const data = /** @type {any} */ (await response.json());
+  if (!response.ok || data.errors) {
+    spinner.stop(`Failed to fetch anime data — ${data.errors?.[0]?.message ?? response.statusText}`);
+    return;
+  }
+
+  const characters = data.data?.Media?.characters?.nodes ?? [];
+  if (characters.length === 0) {
+    spinner.stop('No characters found.');
+    return;
+  }
+
+  const imageUrls = /** @type {string[]} */ (characters.map((/** @type {any} */ c) => c.image.large).filter(Boolean));
+  spinner.stop(`Found ${imageUrls.length} characters`);
+
+  await uploadAll(imageUrls);
 }
 
 async function seedFromJikan() {
@@ -66,45 +118,71 @@ async function seedFromJikan() {
 
   spinner.stop('Fetched anime data done');
 
-  spinner.start('Fetching images...');
+  await uploadAll(imageUrls);
+}
 
-  const limit = pLimit(3);
-
-  const results = await Promise.all(imageUrls.map((url) => limit(() => uploadImage(url, spinner))));
-  spinner.stop('Done');
-
-  const summary = results.reduce(
+/**
+ * @param {Array<{ status: 'uploaded' | 'skipped' | 'failed', reason?: string }>} results
+ */
+function summarize(results) {
+  return results.reduce(
     (acc, r) => { acc[r.status]++; return acc; },
     { uploaded: 0, skipped: 0, failed: 0 }
   );
+}
 
-  const errors = results.filter(r => r.status === 'failed' && r.reason);
-  errors.forEach(r => clack.log.error(r.reason ?? ''));
+/**
+ * @param {string[]} urls
+ * @param {number} [concurrency=3]
+ */
+async function uploadAll(urls, concurrency = 3) {
+  const taskLog = clack.taskLog({
+    title: `Uploading ${urls.length} images...`,
+  });
 
+  const limit = pLimit(concurrency);
+  const results = await Promise.all(urls.map((url) => limit(() => uploadImage(url, taskLog))));
+
+  // Note: we deliberately don't call taskLog.success()/error() — those clear
+  // the per-image lines (or re-print stale text via showLog). Leaving the log
+  // un-completed keeps every line's final in-place status on screen; outro
+  // closes the flow.
+  const summary = summarize(results);
   clack.outro(`Uploaded ${summary.uploaded}  Skipped ${summary.skipped}  Failed ${summary.failed}`);
 }
+
 /**
  * @param {string} url
- * @param {ReturnType<typeof clack.spinner>} spinner
- */
-/**
- * @param {string} url
- * @param {ReturnType<typeof clack.spinner>} spinner
+ * @param {TaskLog} log
  * @returns {Promise<{ status: 'uploaded' | 'skipped' | 'failed', reason?: string }>}
  */
-async function uploadImage(url, spinner) {
+async function uploadImage(url, log) {
   const filename = path.basename(url);
+  // Each image gets its own line that updates in place: "name — uploading…"
+  // becomes "✓ name — uploaded" on the same line when it finishes. A group
+  // entry is a persistent line; .success()/.error() replace it (unlike
+  // log.message(), which appends a new line each time).
+  const entry = log.group('');
+  entry.message(`${filename} — uploading…`);
+  /** @param {{ status: 'uploaded' | 'skipped' | 'failed', reason?: string }} result */
+  const report = (result) => {
+    const icon = result.status === 'uploaded' ? '✓' : result.status === 'skipped' ? '–' : '✗';
+    const verb = result.status === 'uploaded' ? 'uploaded' : result.status === 'skipped' ? 'skipped' : 'failed';
+    const line = `${icon} ${filename} — ${verb}${result.reason ? ` (${result.reason})` : ''}`;
+    if (result.status === 'failed') entry.error(line);
+    else entry.success(line);
+    return result;
+  };
   try {
     const strapiResponse = await fetch(`${process.env.STRAPI_URL}/api/upload/files?filters[name][$eq]=${filename}`, {
       headers: { Authorization: `Bearer ${process.env.STRAPI_TOKEN}` }
     });
     if (!strapiResponse.ok) {
-      return { status: 'failed', reason: `Duplicate check failed for ${filename}: ${strapiResponse.statusText}` };
+      return report({ status: 'failed', reason: `Duplicate check failed: ${strapiResponse.statusText}` });
     }
     const checkData = /** @type {any} */ (await strapiResponse.json());
     if (checkData.length > 0) {
-      spinner.message(`Skipping ${filename} — already exists`);
-      return { status: 'skipped' };
+      return report({ status: 'skipped', reason: 'already exists' });
     }
 
     const buffer = url.startsWith('http')
@@ -114,7 +192,6 @@ async function uploadImage(url, spinner) {
     const formData = new FormData();
     const blob = new Blob([buffer], { type: 'image/jpeg' });
     formData.append('files', blob, filename);
-    spinner.message(`Uploading ${filename}...`);
     const uploadResponse = await fetch(`${process.env.STRAPI_URL}/api/upload`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${process.env.STRAPI_TOKEN}` },
@@ -122,12 +199,12 @@ async function uploadImage(url, spinner) {
     });
     if (!uploadResponse.ok) {
       const errBody = await uploadResponse.text();
-      return { status: 'failed', reason: `Upload failed for ${filename}: ${uploadResponse.statusText} — ${errBody}` };
+      return report({ status: 'failed', reason: `Upload failed: ${uploadResponse.statusText} — ${errBody}` });
     }
 
     const uploadData = /** @type {any} */ (await uploadResponse.json());
     if (!uploadData?.[0]?.id) {
-      return { status: 'failed', reason: `No media ID returned for ${filename}` };
+      return report({ status: 'failed', reason: 'No media ID returned' });
     }
 
     const galleryResponse = await fetch(`${process.env.STRAPI_URL}/api/galleries`, {
@@ -136,14 +213,13 @@ async function uploadImage(url, spinner) {
       body: JSON.stringify({ data: { image: uploadData[0].id } })
     });
     if (!galleryResponse.ok) {
-      return { status: 'failed', reason: `Gallery entry failed for ${filename}: ${galleryResponse.statusText}` };
+      return report({ status: 'failed', reason: `Gallery entry failed: ${galleryResponse.statusText}` });
     }
 
-    spinner.message(`Uploaded ${filename}`);
-    return { status: 'uploaded' };
+    return report({ status: 'uploaded' });
 
   } catch (e) {
-    return { status: 'failed', reason: `${filename}: ${e}` };
+    return report({ status: 'failed', reason: `${e}` });
   }
 }
 
@@ -170,24 +246,8 @@ async function seedFromLocal() {
     return;
   }
 
-  const spinner = clack.spinner();
-  spinner.start(`Found ${files.length} images, uploading...`);
-
-  const limit = pLimit(1);
-  const results = await Promise.all(
-    files.map(f => limit(() => uploadImage(path.join(String(folderPath), f), spinner)))
-  );
-  spinner.stop('Done');
-
-  const summary = results.reduce(
-    (acc, r) => { acc[r.status]++; return acc; },
-    { uploaded: 0, skipped: 0, failed: 0 }
-  );
-
-  const errors = results.filter(r => r.status === 'failed' && r.reason);
-  errors.forEach(r => clack.log.error(r.reason ?? ''));
-
-  clack.outro(`Uploaded ${summary.uploaded}  Skipped ${summary.skipped}  Failed ${summary.failed}`);
+  const filePaths = files.map(f => path.join(String(folderPath), f));
+  await uploadAll(filePaths, 1);
 }
 
 main();
