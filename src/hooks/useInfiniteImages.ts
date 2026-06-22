@@ -8,15 +8,21 @@ export function useInfiniteImages() {
 
   useEffect(() => {
     if (data) {
-      const prevImageIds = new Set(accumulatedImages.map((image) => image.id));
+      setAccumulatedImages((prev) => {
+        const prevImageIds = new Set(prev.map((image) => image.id));
 
-      const newImages = data.data.filter(
-        (image) => !prevImageIds.has(image.id)
-      );
+        const newImages = data.data.filter(
+          (image) => !prevImageIds.has(image.id)
+        );
 
-      setAccumulatedImages((prev) => [...prev, ...newImages]);
+        if (newImages.length === 0) {
+          return prev;
+        }
+
+        return [...prev, ...newImages];
+      });
     }
-  }, [data, accumulatedImages]);
+  }, [data]);
 
   const hasMore = data && currentPage < data.meta.pagination.pageCount;
 
