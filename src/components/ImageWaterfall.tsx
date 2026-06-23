@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Button, Flex } from "@radix-ui/themes";
 import { useInfiniteImages } from "../hooks/useInfiniteImages";
 import { GalleryItem } from "../store/imagesApi";
+import GalleryImage from "./GalleryImage";
 
 const COLUMN_WIDTH = 200;
 const TARGET_ROW_HEIGHT = 240;
@@ -75,6 +76,7 @@ export default function ImageWaterfall() {
     isError,
     hasMore,
     loadMore,
+    reset,
   } = useInfiniteImages();
 
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -153,6 +155,9 @@ export default function ImageWaterfall() {
         >
           Justified
         </Button>
+        <Button color="gray" variant="outline" onClick={reset}>
+          Reset to page 1
+        </Button>
       </Flex>
 
       <div ref={containerRef}>
@@ -170,16 +175,16 @@ export default function ImageWaterfall() {
                 }}
               >
                 {column.map((item) => (
-                  <img
+                  <GalleryImage
                     key={item.id}
-                    src={item.image.url}
-                    alt={item.image.alternativeText || ""}
-                    loading="lazy"
-                    style={{
+                    item={item}
+                    wrapperStyle={{ width: '100%' }}
+                    imageStyle={{
                       width: "100%",
                       aspectRatio: `${item.image.width} / ${item.image.height}`,
                       display: "block",
                       borderRadius: "8px",
+                      backgroundColor: "plum"
                     }}
                   />
                 ))}
@@ -201,21 +206,24 @@ export default function ImageWaterfall() {
                 {row.items.map((item) => {
                   const ar = item.image.width / item.image.height;
                   return (
-                    <img
+                    <GalleryImage
                       key={item.id}
-                      src={item.image.url}
-                      alt={item.image.alternativeText || ""}
-                      loading="lazy"
-                      style={{
-                        height: "100%",
+                      item={item}
+                      wrapperStyle={{
                         width: row.stretch ? undefined : `${row.height * ar}px`,
                         flexGrow: row.stretch ? ar : 0,
                         flexShrink: row.stretch ? 1 : 0,
                         flexBasis: row.stretch ? 0 : "auto",
+                        height: "100%",
                         minWidth: 0,
+                      }}
+                      imageStyle={{
+                        width: "100%",
+                        height: "100%",
                         objectFit: "cover",
                         display: "block",
                         borderRadius: "8px",
+                        backgroundColor: "plum"
                       }}
                     />
                   );

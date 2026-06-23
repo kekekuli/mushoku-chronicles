@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { GalleryItem, useGetImagesQuery } from "../store/imagesApi";
 
 export function useInfiniteImages() {
@@ -32,11 +32,19 @@ export function useInfiniteImages() {
     }
   }
 
+  // Test helper: jump back to page 1 to re-subscribe getImages(1).
+  // Within keepUnusedDataFor (300s) this should be a cache hit (no network).
+  const reset = useCallback(() => {
+    setAccumulatedImages([]);
+    setCurrentPage(1);
+  }, []);
+
   return {
     images: accumulatedImages,
     isFetching,
     isError,
     hasMore,
     loadMore,
+    reset,
   };
 }
