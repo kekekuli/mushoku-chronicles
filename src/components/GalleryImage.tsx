@@ -1,5 +1,6 @@
-import { CSSProperties } from "react";
+import { CSSProperties, useState } from "react";
 import { GalleryItem, useGetImageMetaQuery, useToggleLikeMutation } from "../store/imagesApi";
+import { ImageDialog } from "./ImageDialog";
 
 interface GalleryImageProps {
   item: GalleryItem;
@@ -10,6 +11,7 @@ interface GalleryImageProps {
 export default function GalleryImage({ item, wrapperStyle, imageStyle }: GalleryImageProps) {
   const { data: meta, isLoading } = useGetImageMetaQuery(item.id);
   const [toggleLike] = useToggleLikeMutation();
+  const [open, setOpen] = useState(false);
 
   return (
     <div
@@ -22,7 +24,8 @@ export default function GalleryImage({ item, wrapperStyle, imageStyle }: Gallery
         key={item.id}
         alt={item.image.alternativeText || ""}
         loading="lazy"
-        style={imageStyle}
+        onClick={() => setOpen(true)}
+        style={{ ...imageStyle, cursor: "pointer" }}
       />
       <div
         style={{
@@ -31,7 +34,7 @@ export default function GalleryImage({ item, wrapperStyle, imageStyle }: Gallery
           right: 8,
         }}
       >
-        <button type="button" onClick={() => void toggleLike(item.id)}
+        <button type="button" onClick={(e) => { e.stopPropagation(); void toggleLike(item.id); }}
           style={{
             background: "none",
             border: "none",
@@ -47,6 +50,7 @@ export default function GalleryImage({ item, wrapperStyle, imageStyle }: Gallery
           {isLoading ? "…" : meta?.like}
         </button>
       </div>
+      <ImageDialog galleryItem={item} open={open} onOpenChange={setOpen} />
     </div>
   )
 }

@@ -62,10 +62,20 @@ export const imagesApi = createApi({
         )
         // queryFn always success, so no need to rollback logic
       }
+    }),
+    updateImageDesc: builder.mutation<void, { id: number, desc: string }>({
+      queryFn: () => ({ data: undefined }),
+      onQueryStarted: ({ id, desc }, { dispatch }) => {
+        dispatch(
+          imagesApi.util.updateQueryData('getImageMeta', id, (draft) => {
+            draft.desc = desc
+          })
+        )
+      }
     })
   })
 })
 
-export const { useGetImagesQuery, useGetImageMetaQuery, useToggleLikeMutation } = imagesApi
+export const { useGetImagesQuery, useGetImageMetaQuery, useToggleLikeMutation, useUpdateImageDescMutation } = imagesApi
 
 
