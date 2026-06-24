@@ -35,11 +35,21 @@ export const imagesApi = createApi({
   baseQuery: fetchBaseQuery({
     baseUrl: "/"
   }),
-  refetchOnFocus: true,
-  refetchOnReconnect: true,
+  // No refetchOnFocus/refetchOnReconnect: likes, descriptions and removals
+  // live only in the cache (no server persistence), so a refetch would clobber
+  // them. The client cache is the source of truth here.
   endpoints: (builder) => ({
-    getImages: builder.query<ImageResponse, number>({
-      query: (page) => `api/images?page=${page}&pageSize=20`,
+    // One cache entry holding ALL pages (data.pages[]), instead of one entry
+    // per page. No manual accumulation, and add/remove is a single patch.
+    getImages: builder.infiniteQuery<ImageResponse, void, number>({
+      query: ({ pageParam }) => `api/images?page=${pageParam}&pageSize=20`,
+      infiniteQueryOptions: {
+        initialPageParam: 1,
+        getNextPageParam: (lastPage) => {
+          const { page, pageCount } = lastPage.meta.pagination
+          return page < pageCount ? page + 1 : undefined
+        },
+      },
       keepUnusedDataFor: 300
     }),
     getImageMeta: builder.query<ImageMeta, number>({
@@ -72,10 +82,31 @@ export const imagesApi = createApi({
           })
         )
       }
+    }),
+    // List mutation: optimistically drop the image from the single
+    // infinite-query entry. No refetch, no page hunting — just filter it out
+    // of whichever page holds it.
+    removeImage: builder.mutation<void, number>({
+      queryFn: () => ({ data: undefined }),
+      onQueryStarted: (id, { dispatch }) => {
+        dispatch(
+          imagesApi.util.updateQueryData('getImages', undefined, (draft) => {
+            for (const page of draft.pages) {
+              page.data = page.data.filter((item) => item.id !== id)
+            }
+          })
+        )
+      }
     })
   })
 })
 
-export const { useGetImagesQuery, useGetImageMetaQuery, useToggleLikeMutation, useUpdateImageDescMutation } = imagesApi
+export const {
+  useGetImagesInfiniteQuery,
+  useGetImageMetaQuery,
+  useToggleLikeMutation,
+  useUpdateImageDescMutation,
+  useRemoveImageMutation,
+} = imagesApi
 
 

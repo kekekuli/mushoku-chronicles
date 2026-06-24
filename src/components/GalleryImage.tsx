@@ -1,5 +1,5 @@
 import { CSSProperties, useState } from "react";
-import { GalleryItem, useGetImageMetaQuery, useToggleLikeMutation } from "../store/imagesApi";
+import { GalleryItem, useGetImageMetaQuery, useToggleLikeMutation, useRemoveImageMutation } from "../store/imagesApi";
 import { ImageDialog } from "./ImageDialog";
 
 interface GalleryImageProps {
@@ -11,6 +11,7 @@ interface GalleryImageProps {
 export default function GalleryImage({ item, wrapperStyle, imageStyle }: GalleryImageProps) {
   const { data: meta, isLoading } = useGetImageMetaQuery(item.id);
   const [toggleLike] = useToggleLikeMutation();
+  const [removeImage] = useRemoveImageMutation();
   const [open, setOpen] = useState(false);
 
   return (
@@ -27,6 +28,26 @@ export default function GalleryImage({ item, wrapperStyle, imageStyle }: Gallery
         onClick={() => setOpen(true)}
         style={{ ...imageStyle, cursor: "pointer" }}
       />
+      <button
+        type="button"
+        aria-label="Remove image"
+        onClick={(e) => { e.stopPropagation(); void removeImage(item.id); }}
+        style={{
+          position: "absolute",
+          top: 8,
+          right: 8,
+          width: 24,
+          height: 24,
+          lineHeight: "22px",
+          borderRadius: 999,
+          border: "none",
+          cursor: "pointer",
+          color: "#fff",
+          background: "rgba(0,0,0,0.45)",
+        }}
+      >
+        ×
+      </button>
       <div
         style={{
           position: "absolute",

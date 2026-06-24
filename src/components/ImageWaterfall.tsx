@@ -76,7 +76,7 @@ export default function ImageWaterfall() {
     isError,
     hasMore,
     loadMore,
-    reset,
+    refresh,
   } = useInfiniteImages();
 
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -155,8 +155,8 @@ export default function ImageWaterfall() {
         >
           Justified
         </Button>
-        <Button color="gray" variant="outline" onClick={reset}>
-          Reset to page 1
+        <Button color="gray" variant="outline" onClick={() => void refresh()}>
+          Refresh
         </Button>
       </Flex>
 

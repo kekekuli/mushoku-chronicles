@@ -1,50 +1,32 @@
-import { useCallback, useEffect, useState } from "react";
-import { GalleryItem, useGetImagesQuery } from "../store/imagesApi";
+import { useGetImagesInfiniteQuery } from "../store/imagesApi";
 
 export function useInfiniteImages() {
-  const [currentPage, setCurrentPage] = useState(1);
-  const [accumulatedImages, setAccumulatedImages] = useState<GalleryItem[]>([]);
-  const { data, isFetching, isError } = useGetImagesQuery(currentPage);
+  const {
+    data,
+    isFetching,
+    isError,
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+    refetch,
+  } = useGetImagesInfiniteQuery();
 
-  useEffect(() => {
-    if (data) {
-      setAccumulatedImages((prev) => {
-        const prevImageIds = new Set(prev.map((image) => image.id));
-
-        const newImages = data.data.filter(
-          (image) => !prevImageIds.has(image.id)
-        );
-
-        if (newImages.length === 0) {
-          return prev;
-        }
-
-        return [...prev, ...newImages];
-      });
-    }
-  }, [data]);
-
-  const hasMore = data && currentPage < data.meta.pagination.pageCount;
+  // Single source of truth: read straight from the cache and flatten the
+  // pages. No local accumulator to keep in sync.
+  const images = data?.pages.flatMap((page) => page.data) ?? [];
 
   function loadMore() {
-    if (!isFetching && hasMore) {
-      setCurrentPage((prev) => prev + 1);
+    if (!isFetchingNextPage && hasNextPage) {
+      void fetchNextPage();
     }
   }
 
-  // Test helper: jump back to page 1 to re-subscribe getImages(1).
-  // Within keepUnusedDataFor (300s) this should be a cache hit (no network).
-  const reset = useCallback(() => {
-    setAccumulatedImages([]);
-    setCurrentPage(1);
-  }, []);
-
   return {
-    images: accumulatedImages,
+    images,
     isFetching,
     isError,
-    hasMore,
+    hasMore: hasNextPage ?? false,
     loadMore,
-    reset,
+    refresh: refetch,
   };
 }
