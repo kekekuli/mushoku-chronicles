@@ -105,6 +105,21 @@ export const imagesApi = createApi({
           patch.undo()
         }
       }
+    }),
+    addImage: builder.mutation<GalleryItem, FormData>({
+      query: (formData) => ({
+        url: 'api/addImage',
+        method: 'POST',
+        body: formData
+      }),
+      onQueryStarted: async (_, { dispatch, queryFulfilled }) => {
+        const { data } = await queryFulfilled;
+        dispatch(
+          imagesApi.util.updateQueryData('getImages', undefined, (draft) => {
+            draft.pages[0]?.data.unshift(data)
+          })
+        )
+      }
     })
   })
 })
@@ -115,6 +130,7 @@ export const {
   useToggleLikeMutation,
   useUpdateImageDescMutation,
   useRemoveImageMutation,
+  useAddImageMutation
 } = imagesApi
 
 

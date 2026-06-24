@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Button, Flex } from "@radix-ui/themes";
+import { ChangeEvent, useCallback, useEffect, useRef, useState } from "react";
+import { Button, Flex, Text } from "@radix-ui/themes";
 import { useInfiniteImages } from "../hooks/useInfiniteImages";
-import { GalleryItem } from "../store/imagesApi";
+import { GalleryItem, useAddImageMutation } from "../store/imagesApi";
 import GalleryImage from "./GalleryImage";
 
 const COLUMN_WIDTH = 200;
@@ -26,6 +26,18 @@ function storeLayout(layout: Layout) {
   } catch {
     // Ignore: storage may be unavailable (private mode, quota, disabled).
   }
+}
+
+// Pull the worker's { error } message out of an RTK FetchBaseQueryError.
+function getUploadErrorMessage(err: unknown): string {
+  if (err && typeof err === "object" && "data" in err) {
+    const data = (err as { data?: unknown }).data;
+    if (data && typeof data === "object" && "error" in data) {
+      const error = (data as { error?: unknown }).error;
+      if (typeof error === "string") return error;
+    }
+  }
+  return "Upload failed";
 }
 
 interface JustifiedRow {
@@ -87,6 +99,25 @@ export default function ImageWaterfall() {
   const changeLayout = (next: Layout) => {
     setLayout(next);
     storeLayout(next);
+  };
+
+  const [addImage, { isLoading: isUploading }] = useAddImageMutation();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
+  const handleFileSelected = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // reset so the same file can be re-picked
+    if (!file) return;
+
+    setUploadError(null);
+    const formData = new FormData();
+    formData.append("files", file); // field name the worker reads
+    try {
+      await addImage(formData).unwrap();
+    } catch (err) {
+      setUploadError(getUploadErrorMessage(err));
+    }
   };
 
   // Callback ref: attach the observer whenever the container node mounts,
@@ -158,6 +189,24 @@ export default function ImageWaterfall() {
         <Button color="gray" variant="outline" onClick={() => void refresh()}>
           Refresh
         </Button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          style={{ display: "none" }}
+          onChange={(e) => void handleFileSelected(e)}
+        />
+        <Button
+          onClick={() => fileInputRef.current?.click()}
+          disabled={isUploading}
+        >
+          {isUploading ? "Uploading…" : "Add image"}
+        </Button>
+        {uploadError && (
+          <Text color="red" size="2">
+            {uploadError}
+          </Text>
+        )}
       </Flex>
 
       <div ref={containerRef}>
