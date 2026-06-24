@@ -83,19 +83,27 @@ export const imagesApi = createApi({
         )
       }
     }),
-    // List mutation: optimistically drop the image from the single
-    // infinite-query entry. No refetch, no page hunting — just filter it out
-    // of whichever page holds it.
-    removeImage: builder.mutation<void, number>({
-      queryFn: () => ({ data: undefined }),
-      onQueryStarted: (id, { dispatch }) => {
-        dispatch(
+    // List mutation: DELETE the gallery entry + media file in Strapi, while
+    // optimistically dropping it from the single infinite-query entry. If the
+    // request fails, the patch rolls back and the image reappears.
+    removeImage: builder.mutation<void, { id: number, documentId: string, fileId: number }>({
+      query: ({ documentId, fileId }) => ({
+        url: `api/images/${documentId}?fileId=${fileId}`,
+        method: 'DELETE',
+      }),
+      onQueryStarted: async ({ id }, { dispatch, queryFulfilled }) => {
+        const patch = dispatch(
           imagesApi.util.updateQueryData('getImages', undefined, (draft) => {
             for (const page of draft.pages) {
               page.data = page.data.filter((item) => item.id !== id)
             }
           })
         )
+        try {
+          await queryFulfilled
+        } catch {
+          patch.undo()
+        }
       }
     })
   })

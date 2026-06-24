@@ -34,6 +34,36 @@ app.get('/api/images/:id/meta', c => {
   return c.json(generateMeta(id));
 })
 
+// Delete a gallery item: the content entry (by documentId) AND its media file
+// (by numeric file id). Strapi doesn't cascade-delete uploaded files, so we
+// remove both explicitly.
+app.delete('/api/images/:documentId', async c => {
+  const documentId = c.req.param('documentId');
+  const fileId = c.req.query('fileId');
+  const headers = { Authorization: `Bearer ${c.env.STRAPI_TOKEN}` };
+
+  // Content entry is what the gallery list shows — its deletion is what
+  // determines success/failure for the client's optimistic patch.
+  const contentRes = await fetch(`${c.env.STRAPI_URL}/api/galleries/${documentId}`, {
+    method: 'DELETE',
+    headers,
+  });
+
+  if (!contentRes.ok) {
+    return c.json({ error: 'Failed to delete gallery entry' }, 502);
+  }
+
+  // Best-effort media cleanup; don't fail the request if the file is already gone.
+  if (fileId) {
+    await fetch(`${c.env.STRAPI_URL}/api/upload/files/${fileId}`, {
+      method: 'DELETE',
+      headers,
+    });
+  }
+
+  return c.body(null, 204);
+})
+
 
 // Fall through to static assets (React app)
 app.all('*', c => {

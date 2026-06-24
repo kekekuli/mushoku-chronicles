@@ -31,7 +31,10 @@ export default function GalleryImage({ item, wrapperStyle, imageStyle }: Gallery
       <button
         type="button"
         aria-label="Remove image"
-        onClick={(e) => { e.stopPropagation(); void removeImage(item.id); }}
+        onClick={(e) => {
+          e.stopPropagation();
+          void removeImage({ id: item.id, documentId: item.documentId, fileId: item.image.id });
+        }}
         style={{
           position: "absolute",
           top: 8,
