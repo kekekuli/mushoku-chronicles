@@ -23,6 +23,7 @@ export default function GalleryImage({ item, wrapperStyle, imageStyle }: Gallery
     >
       <img
         key={item.id}
+        src={item.image.url}
         alt={item.image.alternativeText || ""}
         loading="lazy"
         onClick={() => setOpen(true)}

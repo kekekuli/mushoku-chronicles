@@ -233,7 +233,6 @@ export default function ImageWaterfall() {
                       aspectRatio: `${item.image.width} / ${item.image.height}`,
                       display: "block",
                       borderRadius: "8px",
-                      backgroundColor: "plum"
                     }}
                   />
                 ))}
@@ -272,7 +271,6 @@ export default function ImageWaterfall() {
                         objectFit: "cover",
                         display: "block",
                         borderRadius: "8px",
-                        backgroundColor: "plum"
                       }}
                     />
                   );

@@ -11,9 +11,18 @@ export function useInfiniteImages() {
     refetch,
   } = useGetImagesInfiniteQuery();
 
-  // Single source of truth: read straight from the cache and flatten the
-  // pages. No local accumulator to keep in sync.
-  const images = data?.pages.flatMap((page) => page.data) ?? [];
+  // Flatten the pages, de-duplicating by id. Offset pagination + optimistic
+  // inserts means the same image can appear in pages[0] (optimistic copy) and
+  // again in a later page when the server returns it — keep the first, drop
+  // the rest, so it never renders twice.
+  const seen = new Set<number>();
+  const images = (data?.pages.flatMap((page) => page.data) ?? []).filter(
+    (item) => {
+      if (seen.has(item.id)) return false;
+      seen.add(item.id);
+      return true;
+    }
+  );
 
   function loadMore() {
     if (!isFetchingNextPage && hasNextPage) {
